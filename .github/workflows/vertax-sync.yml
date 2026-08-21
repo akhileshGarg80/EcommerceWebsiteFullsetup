@@ -1,18 +1,36 @@
-name: Vertax Online Sync
+name: Vertax Sync
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]   # apni default branch daalein, ya "**" sab branches ke liye
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Notify Vertax Backend
+      - name: Login to Vertax
+        id: login
         run: |
-          curl -X POST "${{ vars.BACKEND_URL }}/api/github/sync" \
+          RESPONSE=$(curl -s -X POST "$VERTAX_BACKEND_URL/api/auth/login" \
             -H "Content-Type: application/json" \
-            -H "X-Vertax-Public-Key: ${{ vars.VERTAX_PUBLIC_KEY }}" \
-            -H "X-Vertax-Private-Key: ${{ secrets.VERTAX_PRIVATE_KEY }}"
+            -d "{\"projectId\":\"$VERTAX_PROJECT_ID\",\"privateKey\":\"$VERTAX_PRIVATE_KEY\"}")
+          TOKEN=$(echo "$RESPONSE" | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+          if [ -z "$TOKEN" ]; then
+            echo "Login failed: $RESPONSE"
+            exit 1
+          fi
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+        env:
+          VERTAX_BACKEND_URL: ${{ secrets.VERTAX_BACKEND_URL }}
+          VERTAX_PROJECT_ID: ${{ secrets.VERTAX_PROJECT_ID }}
+          VERTAX_PRIVATE_KEY: ${{ secrets.VERTAX_PRIVATE_KEY }}
+
+      - name: Sync repository to Vertax
+        run: |
+          curl -s -X POST "$VERTAX_BACKEND_URL/api/github/connect" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $VERTAX_TOKEN" \
+            -d "{\"owner\":\"${{ github.repository_owner }}\",\"repo\":\"${{ github.event.repository.name }}\",\"branch\":\"${{ github.ref_name }}\"}"
+        env:
+          VERTAX_BACKEND_URL: ${{ secrets.VERTAX_BACKEND_URL }}
+          VERTAX_TOKEN: ${{ steps.login.outputs.token }}
